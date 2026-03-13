@@ -1,0 +1,265 @@
+// ─────────────────────────────────────────────
+// Energy Service — Prisma Schema
+// ─────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN    // Acesso total
+  OPERATOR // Acesso interno (Bruno / Tiago)
+  CLIENT   // Reservado para uso futuro
+}
+
+/// Etapa 1 da jornada: Status da Venda
+enum SaleStatus {
+  CONFIRMED  // Confirmada
+  COMPLETED  // Concluída
+}
+
+/// Etapa 2 da jornada: Status do Pedido (equipamentos)
+enum OrderStatus {
+  PLACED     // Realizado
+  DELIVERED  // Entregue
+  INSTALLING // Instalando
+  INSTALLED  // Instalado
+}
+
+/// Etapa 3 da jornada: Status do Projeto (documentação)
+enum ProjectStatus {
+  NOT_STARTED // Não Iniciado
+  STARTED     // Iniciado
+  SUBMITTED   // Enviado à concessionária
+  APPROVED    // Aprovado
+}
+
+/// Etapa 4 da jornada: Status do Sistema (homologação)
+enum SystemStatus {
+  INSPECTION_REQUESTED // Vistoria Solicitada
+  HOMOLOGATED          // Homologado
+}
+
+/// Categoria usada no histórico de mudanças
+enum StatusCategory {
+  SALE
+  ORDER
+  PROJECT
+  SYSTEM
+}
+
+/// Tipos de documentos do projeto
+enum DocumentType {
+  CONTRACT                     // Contrato
+  POWER_OF_ATTORNEY            // Procuração
+  PROJECT_START_CHECKLIST      // Checklist de início de projeto
+  INSTALLATION_START_CHECKLIST // Checklist de início de instalação
+  INSTALLATION_END_CHECKLIST   // Checklist de fim de instalação
+  CONFORMITY_CERTIFICATE       // Atestado de conformidade
+  SINGLE_LINE_DIAGRAM          // Diagrama unifilar
+  UTILITY_SUBMISSION           // Docs enviados à concessionária
+  OTHER                        // Outros
+}
+
+/// Tipo de notificação disparada
+enum NotificationType {
+  STATUS_CHANGED
+  DOCUMENT_UPLOADED
+  TASK_CREATED
+  HOMOLOGATION_COMPLETED
+  CUSTOM
+}
+
+/// Status de uma tarefa interna
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// ─────────────────────────────────────────────
+// Models
+// ─────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      UserRole @default(OPERATOR)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  clientsCreated    Client[]             @relation("ClientCreatedBy")
+  projectsCreated   Project[]            @relation("ProjectCreatedBy")
+  statusChanges     ProjectStatusHistory[]
+  tasksAssigned     Task[]               @relation("TaskAssignedTo")
+  tasksCreated      Task[]               @relation("TaskCreatedBy")
+  documentsUploaded Document[]
+
+  @@map("users")
+}
+
+model Client {
+  id          String  @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  cpf         String? @unique
+  address     String?
+  city        String?
+  state       String?
+  zipCode     String?
+  notes       String?
+
+  /// Token único para acesso ao portal do cliente (sem login)
+  portalToken String  @unique @default(cuid())
+
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdById String?
+  createdBy   User?    @relation("ClientCreatedBy", fields: [createdById], references: [id])
+
+  projects Project[]
+
+  @@map("clients")
+}
+
+model Project {
+  id   String @id @default(cuid())
+  name String
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // Dados técnicos
+  power             Float?  // kWp
+  inverterModel     String?
+  panelModel        String?
+  panelCount        Int?
+  installationAddress String?
+  installationCity    String?
+
+  notes String?
+
+  // Status atual de cada etapa (desnormalizado para acesso rápido)
+  saleStatus    SaleStatus    @default(CONFIRMED)
+  orderStatus   OrderStatus   @default(PLACED)
+  projectStatus ProjectStatus @default(NOT_STARTED)
+  systemStatus  SystemStatus  @default(INSPECTION_REQUESTED)
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdById String?
+  createdBy   User?   @relation("ProjectCreatedBy", fields: [createdById], references: [id])
+
+  // Relacionamentos
+  statusHistory  ProjectStatusHistory[]
+  documents      Document[]
+  tasks          Task[]
+  notifications  Notification[]
+
+  @@map("projects")
+}
+
+/// Histórico completo de todas as mudanças de status
+model ProjectStatusHistory {
+  id        String         @id @default(cuid())
+  projectId String
+  category  StatusCategory
+
+  previousValue String? // valor anterior (string do enum)
+  newValue      String  // valor novo (string do enum)
+
+  changedById String?
+  notes       String?
+
+  createdAt DateTime @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  changedBy User?   @relation(fields: [changedById], references: [id])
+
+  @@map("project_status_history")
+}
+
+model Document {
+  id        String       @id @default(cuid())
+  projectId String
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name     String
+  type     DocumentType @default(OTHER)
+  fileUrl  String       // URL pública ou signed URL do Supabase
+  fileKey  String       // Caminho no bucket do Supabase Storage
+  mimeType String?
+  size     Int?         // bytes
+
+  /// Se true, aparece no portal do cliente
+  visibleToClient Boolean @default(false)
+
+  uploadedById String?
+  uploadedBy   User?   @relation(fields: [uploadedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@map("documents")
+}
+
+/// Log de todas as notificações enviadas (WhatsApp, e-mail etc.)
+model Notification {
+  id        String           @id @default(cuid())
+  projectId String?
+  project   Project?         @relation(fields: [projectId], references: [id])
+
+  type      NotificationType
+  channel   String           @default("whatsapp") // whatsapp | email | sms
+  recipient String           // número ou e-mail
+
+  message   String
+  sentAt    DateTime?
+  success   Boolean?
+  errorMsg  String?
+
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
+
+/// Tarefas e pendências internas da equipe
+model Task {
+  id          String     @id @default(cuid())
+  projectId   String?
+  project     Project?   @relation(fields: [projectId], references: [id])
+
+  title       String
+  description String?
+  status      TaskStatus @default(PENDING)
+  dueDate     DateTime?
+
+  assignedToId String?
+  assignedTo   User?   @relation("TaskAssignedTo", fields: [assignedToId], references: [id])
+
+  createdById String?
+  createdBy   User?   @relation("TaskCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tasks")
+}

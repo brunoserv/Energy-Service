@@ -42,3 +42,10 @@ prisma/migrations/
 # IDE
 .vscode/
 .idea/
+
+# local uploads (armazenamento de documentos sem Supabase)
+/uploads/*
+!/uploads/.gitkeep
+
+# docker env (contém segredos)
+.env.docker

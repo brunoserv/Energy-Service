@@ -141,11 +141,24 @@ export interface HomologationCompletedEvent extends BaseEvent {
   clientName?: string;
 }
 
+export interface ClientCreatedEvent extends BaseEvent {
+  type: "client_created";
+  clientId: string;
+}
+
+export interface ProjectCreatedEvent extends BaseEvent {
+  type: "project_created";
+  projectId: string;
+  clientId: string;
+}
+
 export type AppEvent =
   | StatusChangedEvent
   | DocumentUploadedEvent
   | TaskCreatedEvent
-  | HomologationCompletedEvent;
+  | HomologationCompletedEvent
+  | ClientCreatedEvent
+  | ProjectCreatedEvent;
 
 // ─────────────────────────────────────────────
 // Tipos de navegação / sessão

@@ -106,7 +106,7 @@ const docTypeLabels: Record<string, string> = {
 };
 
 function getCategoryStatus(
-  project: Awaited<ReturnType<typeof getPortalData>>["projects"][0],
+  project: NonNullable<Awaited<ReturnType<typeof getPortalData>>>["projects"][0],
   category: string
 ) {
   switch (category) {

@@ -2,11 +2,17 @@ import { createClient } from "@supabase/supabase-js";
 import path from "path";
 import fs from "fs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-// Client público (browser)
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Client público (browser) — inicializado de forma lazy para evitar erro no build
+let _supabase: ReturnType<typeof createClient> | null = null;
+export function getSupabaseClient() {
+  if (!_supabase) {
+    _supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+  }
+  return _supabase;
+}
 
 // Client admin (server-side, usa service role key — NÃO expor ao browser)
 export function getSupabaseAdmin() {
@@ -14,7 +20,7 @@ export function getSupabaseAdmin() {
   if (!serviceRoleKey) {
     throw new Error("SUPABASE_SERVICE_ROLE_KEY não configurada.");
   }
-  return createClient(supabaseUrl, serviceRoleKey, {
+  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
     auth: { persistSession: false },
   });
 }

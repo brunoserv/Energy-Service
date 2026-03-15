@@ -30,6 +30,9 @@
     "tailwind-merge": "^2.5.5",
     "lucide-react": "^0.468.0"
   },
+  "prisma": {
+    "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
+  },
   "devDependencies": {
     "typescript": "^5",
     "@types/node": "^20",

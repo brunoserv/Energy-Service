@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { whatsappService } from "@/services/whatsapp.service";
+import { whatsappAIAgent } from "@/services/whatsapp-ai-agent.service";
 
 // Verificação do webhook pelo Meta (GET)
 export async function GET(req: Request) {
@@ -20,11 +22,65 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+
     // Resposta imediata exigida pelo Meta (< 20s)
-    // Processamento assíncrono de eventos pode ser adicionado aqui via queue
-    console.log("[WhatsApp Webhook]", JSON.stringify(body, null, 2));
+    // Processar em background para não bloquear
+    processIncomingMessages(body).catch((err) => {
+      console.error("[WhatsApp Webhook] Erro ao processar mensagens:", err);
+    });
+
     return NextResponse.json({ received: true });
   } catch {
     return NextResponse.json({ error: "Payload inválido" }, { status: 400 });
+  }
+}
+
+/** Extrai e processa mensagens de texto recebidas */
+async function processIncomingMessages(payload: unknown): Promise<void> {
+  const p = payload as Record<string, unknown>;
+
+  const entries = p?.entry as Array<Record<string, unknown>> | undefined;
+  if (!entries) return;
+
+  for (const entry of entries) {
+    const changes = entry?.changes as Array<Record<string, unknown>> | undefined;
+    if (!changes) continue;
+
+    for (const change of changes) {
+      const value = change?.value as Record<string, unknown> | undefined;
+      const messages = value?.messages as Array<Record<string, unknown>> | undefined;
+      if (!messages) continue;
+
+      for (const msg of messages) {
+        // Só processa mensagens de texto
+        if (msg.type !== "text") continue;
+
+        const from = msg.from as string;
+        const messageId = msg.id as string;
+        const text = (msg.text as Record<string, string>)?.body;
+
+        if (!from || !text) continue;
+
+        console.log(`[WhatsApp Webhook] Mensagem de ${from}: ${text}`);
+
+        try {
+          const reply = await whatsappAIAgent.generateReply({
+            from,
+            text,
+            messageId,
+          });
+
+          if (reply) {
+            await whatsappService.sendText(from, reply);
+            console.log(`[WhatsApp Webhook] Resposta enviada para ${from}`);
+          }
+        } catch (err) {
+          console.error(
+            `[WhatsApp Webhook] Falha ao gerar/enviar resposta para ${from}:`,
+            err
+          );
+        }
+      }
+    }
   }
 }
